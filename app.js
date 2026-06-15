@@ -338,7 +338,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !picker.hi
 // ---- live refresh via CORS proxy -----------------------------------------
 // Our own Cloudflare Worker (reliable + caches, kind to the source sites).
 // Paste your deployed URL here to prefer it; public proxies stay as fallback.
-const WORKER_PROXY = ''; // e.g. 'https://bowls-proxy.YOURNAME.workers.dev'
+const WORKER_PROXY = 'https://bowls-proxy.jon-scott.workers.dev';
 const PROXIES = [
   ...(WORKER_PROXY ? [u => `${WORKER_PROXY}/?url=${encodeURIComponent(u)}`] : []),
   u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
