@@ -18,10 +18,32 @@ const CORS = {
 };
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
-    const target = new URL(request.url).searchParams.get('url');
+    const reqUrl = new URL(request.url);
+
+    // Usage logging: /log?e=event&p=player&d=detail  (country only, no IP)
+    if (reqUrl.pathname === '/log') {
+      const p = reqUrl.searchParams;
+      const event = (p.get('e') || '').slice(0, 40);
+      if (event && env.DB) {
+        try {
+          await env.DB.prepare(
+            'INSERT INTO events (ts, country, event, player, detail) VALUES (?,?,?,?,?)'
+          ).bind(
+            new Date().toISOString(),
+            request.headers.get('CF-IPCountry') || '',
+            event,
+            (p.get('p') || '').slice(0, 60),
+            (p.get('d') || '').slice(0, 60),
+          ).run();
+        } catch (e) { /* never block on logging */ }
+      }
+      return new Response(null, { status: 204, headers: CORS });
+    }
+
+    const target = reqUrl.searchParams.get('url');
     if (!target) return new Response('missing ?url', { status: 400, headers: CORS });
 
     let t;

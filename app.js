@@ -20,6 +20,16 @@ const state = {
 };
 const canonC = n => state.aliases[n] || n;
 
+// Fire-and-forget usage logging via the Worker (country + event + player; no IP).
+function logEvent(event, detail) {
+  try {
+    if (!WORKER_PROXY) return;
+    const u = `${WORKER_PROXY}/log?e=${encodeURIComponent(event)}&p=${encodeURIComponent(state.me || '')}&d=${encodeURIComponent(detail || '')}`;
+    if (navigator.sendBeacon) navigator.sendBeacon(u);
+    else fetch(u, { method: 'POST', mode: 'no-cors', keepalive: true }).catch(() => {});
+  } catch { /* never block on logging */ }
+}
+
 // ---- helpers -------------------------------------------------------------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ordinal = n => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
@@ -76,9 +86,9 @@ function readIdentity() {
   state.me = fromUrl || localStorage.getItem(LS_ME) || null;
   state.scope = localStorage.getItem(LS_SCOPE) || 'mine';
 }
-function setMe(name) { state.me = name; saveIdentity(); updateChrome(); renderAll(); }
+function setMe(name) { state.me = name; saveIdentity(); updateChrome(); renderAll(); logEvent('pick', name); }
 function clearMe() { state.me = null; saveIdentity(); updateChrome(); renderAll(); }
-function setScope(s) { state.scope = s; saveIdentity(); updateChrome(); renderAll(); }
+function setScope(s) { state.scope = s; saveIdentity(); updateChrome(); renderAll(); logEvent('scope', s); }
 
 function updateChrome() {
   if (state.me) {
@@ -307,7 +317,7 @@ scopeEl.addEventListener('click', e => {
 });
 document.querySelector('.tabs').addEventListener('click', e => {
   const b = e.target.closest('.tab');
-  if (b) setTab(b.dataset.tab);
+  if (b) { setTab(b.dataset.tab); logEvent('tab', b.dataset.tab); }
 });
 
 function pickerItems(filter) {
@@ -434,6 +444,7 @@ function saveMatches() {
 }
 async function getResults() {
   const btn = $('get-results'), note = $('gr-note');
+  logEvent('results');
   const urls = [];
   for (const t of state.teams) {
     if (t.source === 'bowlsresults') continue; // bowls averages come free in data.json
@@ -479,6 +490,7 @@ async function init() {
     setTab(localStorage.getItem(LS_TAB) || 'games');
     updateChrome();
     renderAll();
+    logEvent('open');
     if (state.matchTs) $('gr-note').textContent = ` · updated ${new Date(state.matchTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
     if (data.updated) updTime.textContent = `Snapshot ${new Date(data.updated).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
   } catch {

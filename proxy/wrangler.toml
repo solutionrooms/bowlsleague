@@ -2,3 +2,8 @@ name = "bowls-proxy"
 main = "src/worker.js"
 compatibility_date = "2024-11-01"
 workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bowls-log"
+database_id = "2cd2b23f-228d-4ce6-8931-455cdd758d70"
