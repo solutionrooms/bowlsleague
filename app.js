@@ -291,7 +291,7 @@ function renderRankings() {
   const meName = (state.me || '').toLowerCase();
   const shown = state.rankExpanded ? list : list.slice(0, 10);
   const rows = shown.map((p, i) =>
-    `<div class="rank-row ${p.name.toLowerCase() === meName ? 'me' : ''}"><span class="rk-pos">${i + 1}</span>` +
+    `<div class="rank-row clk ${p.name.toLowerCase() === meName ? 'me' : ''}" data-name="${esc(p.name)}"><span class="rk-pos">${i + 1}</span>` +
     `<div class="rk-main"><div class="rk-line1"><span class="rk-name">${esc(p.name)}</span><span class="rk-gp">${p.games} games · ${p.won}–${p.lost}</span></div>` +
     `<div class="rk-sub">${esc(p.leagues.join(' · '))}</div></div>` +
     `<span class="rk-pct">${p.avgFor.toFixed(1)}</span></div>`
@@ -336,6 +336,55 @@ function openPicker() {
 }
 function closePicker() { picker.hidden = true; }
 
+// A player's full game-by-game list (from cached cgleague match pages).
+function playerGames(name) {
+  const target = canonC(name).toLowerCase();
+  const out = [];
+  for (const t of state.teams) {
+    if (t.source === 'bowlsresults') continue; // bowls has no per-rink detail
+    for (const f of (t.fixtures || [])) {
+      const m = f.played && f.matchUrl && state.matches[f.matchUrl];
+      if (!m) continue;
+      const home = f.venue === 'Home';
+      for (const g of m.games) {
+        const pl = home ? g.hp : g.ap, my = home ? g.hs : g.as, opp = home ? g.as : g.hs, oppP = home ? g.ap : g.hp;
+        if (my > 30 || opp > 30) continue;
+        if (canonC(pl).toLowerCase() === target) {
+          out.push({ dateISO: f.dateISO, date: f.date, oppTeam: f.opponent, venue: f.venue, my, opp, oppP, url: f.matchUrl });
+        }
+      }
+    }
+  }
+  out.sort((a, b) => (a.dateISO || '').localeCompare(b.dateISO || ''));
+  return out;
+}
+function openPlayerModal(name) {
+  $('pm-name').textContent = name;
+  const games = playerGames(name);
+  let html;
+  if (games.length) {
+    const w = games.filter(g => g.my > g.opp).length, l = games.filter(g => g.my < g.opp).length;
+    const avg = (games.reduce((s, g) => s + g.my, 0) / games.length).toFixed(1);
+    const rows = games.map(g => {
+      const res = g.my > g.opp ? 'win' : g.my < g.opp ? 'loss' : 'draw';
+      return `<a class="pg" href="${esc(g.url)}"><span class="pg-d">${esc(fShort(g.dateISO, g.date))}</span>` +
+        `<span class="pg-opp">${esc(g.oppP)} · ${esc(g.oppTeam)} ${g.venue === 'Home' ? '(H)' : '(A)'}</span>` +
+        `<span class="pg-sc ${res}">${g.my}–${g.opp}</span></a>`;
+    }).join('');
+    html = `<div class="pm-sum">${games.length} games · ${w}–${l} · avg ${avg}</div>${rows}`;
+  } else {
+    const bowls = state.teams.some(t => t.source === 'bowlsresults' && (t.players || []).some(p => canonC(p.name).toLowerCase() === canonC(name).toLowerCase()));
+    html = `<div class="pk-none">${bowls
+      ? 'Per-game detail isn’t published for Staffordshire Ladies (only averages).'
+      : 'Tap “Get latest results” first to load match scores.'}</div>`;
+  }
+  $('pm-list').innerHTML = html;
+  $('pmodal').hidden = false;
+}
+function closePlayerModal() { $('pmodal').hidden = true; }
+$('pm-close').addEventListener('click', closePlayerModal);
+$('pmodal').addEventListener('click', e => { if (e.target === $('pmodal')) closePlayerModal(); });
+
 meBtn.addEventListener('click', openPicker);
 $('picker-close').addEventListener('click', closePicker);
 $('picker-clear').addEventListener('click', () => { closePicker(); clearMe(); });
@@ -345,7 +394,11 @@ pickerList.addEventListener('click', e => {
   const item = e.target.closest('.pk-item');
   if (item) { closePicker(); setMe(item.dataset.name); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && !picker.hidden) closePicker(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!picker.hidden) closePicker();
+  if (!$('pmodal').hidden) closePlayerModal();
+});
 
 // ---- live refresh via CORS proxy -----------------------------------------
 // Our own Cloudflare Worker (reliable + caches, kind to the source sites).
@@ -474,6 +527,7 @@ rankingsEl.addEventListener('click', e => {
   if (e.target.closest('[data-rk="more"]')) { state.rankExpanded = true; renderRankings(); }
   else if (e.target.closest('[data-rk="less"]')) { state.rankExpanded = false; renderRankings(); }
   else if (e.target.closest('[data-cut]')) { state.cutoff = !state.cutoff; localStorage.setItem(LS_CUTOFF, state.cutoff ? 'on' : 'off'); renderRankings(); }
+  else { const row = e.target.closest('.rank-row'); if (row && row.dataset.name) { openPlayerModal(row.dataset.name); logEvent('player', row.dataset.name); } }
 });
 
 // ---- boot ----------------------------------------------------------------

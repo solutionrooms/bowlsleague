@@ -67,6 +67,17 @@ a { color: inherit; text-decoration: none; }
 .rk-rec .l { color: var(--muted); font-weight: 600; }
 .rk-pct { flex: none; width: 46px; text-align: right; font-weight: 800; }
 .rk-empty { color: var(--muted); padding: 10px 2px; }
+.rank-row.clk { cursor: pointer; }
+.rank-row.clk:hover { background: var(--bg); }
+
+/* Player game-list modal */
+.pm-sum { padding: 9px 13px; font-size: .82rem; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+.pg { display: flex; align-items: baseline; gap: 9px; padding: 7px 13px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.pg:hover { background: var(--bg); }
+.pg .pg-d { flex: none; width: 52px; color: var(--next); font-weight: 700; font-size: .8rem; }
+.pg .pg-opp { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .85rem; }
+.pg .pg-sc { flex: none; font-weight: 800; }
+.pg .pg-sc.win { color: var(--win); } .pg .pg-sc.loss { color: var(--loss); } .pg .pg-sc.draw { color: var(--draw); }
 .rk-ctl { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0 8px; font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .rk-cut { font: inherit; font-size: .74rem; font-weight: 700; cursor: pointer; text-transform: none; letter-spacing: 0; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; }
 .rk-cut.on { background: var(--green); color: #fff; border-color: var(--green); }
