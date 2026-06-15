@@ -129,9 +129,11 @@ function parseResults(html, teamNameNorm, year) {
       const westlandsHome = home === teamNameNorm;
       const westlandsAway = away === teamNameNorm;
       if (!westlandsHome && !westlandsAway) continue;
+      const rinks = (parseInt(stripTags(cs[0]), 10) || 0) + (parseInt(stripTags(cs[6]), 10) || 0);
       map.set(dateISO, {
         for: westlandsHome ? homePts : awayPts,
         against: westlandsHome ? awayPts : homePts,
+        rinks,
         matchUrl,
       });
     }
@@ -158,6 +160,9 @@ function parsePlayers(html) {
         played,
         won: parseInt(stripTags(cs[nameIdx + 2]), 10) || 0,
         lost: parseInt(stripTags(cs[nameIdx + 3]), 10) || 0,
+        for: parseInt(stripTags(cs[nameIdx + 5]), 10) || 0,     // total shots for
+        against: parseInt(stripTags(cs[nameIdx + 6]), 10) || 0, // total shots against
+        avgFor: parseFloat(stripTags(cs[nameIdx + 8])) || 0,    // avg score per game (to 21)
         ave: stripTags(cs[cs.length - 1]), // aggregate average, e.g. "+3.50"
         url: hrefM ? BOWLS_BASE + hrefM[1].replace(/&amp;/g, '&') : null,
       });
@@ -177,7 +182,7 @@ export function composeBowls(config, pages) {
   const resultsMap = parseResults(pages.results || '', teamNameNorm, year);
   const fixtures = parseFixtures(pages.fixtures || '', config.teamId, year).map(f => {
     const r = f.dateISO && resultsMap.get(f.dateISO);
-    if (r) return { ...f, for: r.for, against: r.against, played: true, matchUrl: r.matchUrl };
+    if (r) return { ...f, for: r.for, against: r.against, rinks: r.rinks, played: true, matchUrl: r.matchUrl };
     return { ...f, for: null, against: null, played: false, matchUrl: null };
   });
 

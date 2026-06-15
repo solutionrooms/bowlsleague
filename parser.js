@@ -197,6 +197,30 @@ export function parseDivPage(html) {
   return { divisionHeading, standings };
 }
 
+// ---- match.php : per-rink player scores ----------------------------------
+// Each rink is "first to 21". The winner's cell carries an extra GAIN value,
+// so column positions shift — detect the away block by the first non-numeric
+// cell after the home score.
+export function parseMatchPage(html) {
+  const tbl = getTables(html).find(t => /SCORE/i.test(t)) || '';
+  const games = [];
+  for (const r of getRows(tbl)) {
+    const c = getCells(r).map(stripTags);
+    if (c.length < 4) continue;
+    if (/^name$/i.test(c[0]) || /^total$/i.test(c[0]) || !c[0]) continue;
+    const hs = parseInt(c[1], 10);
+    // away name = first non-empty, non-numeric cell after the home score
+    // (skips the GAIN column, which is empty for the loser).
+    let k = 2;
+    while (k < c.length && (c[k] === '' || /^\d+$/.test(c[k]))) k++;
+    const ap = c[k];
+    const as = parseInt(c[k + 1], 10);
+    if (!c[0] || !ap || !Number.isFinite(hs) || !Number.isFinite(as)) continue;
+    games.push({ hp: c[0], hs, ap, as });
+  }
+  return { games };
+}
+
 // ---- compose a finished team view ---------------------------------------
 const norm = s => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 

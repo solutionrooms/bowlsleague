@@ -7,6 +7,7 @@ export const ALIASES = {
   'D Pedlar': 'Dave Pedlar',
   'Steve Crawley': 'Steve Cawley',
   'Alf Glaze': 'Alfie Glaze',
+  'Glynis Wilburn': 'Glenys Wilburn',
 };
 export const canon = name => ALIASES[name] || name;
 

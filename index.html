@@ -12,7 +12,7 @@
 <body>
   <header class="top">
     <div class="bar">
-      <button id="me-btn" class="me-btn" type="button" title="Sign in as a player">👤 Sign in</button>
+      <button id="me-btn" class="me-btn" type="button" title="Choose which player is you">👤 It's me</button>
       <h1>Westlands Bowls</h1>
       <button id="refresh" class="upd" type="button">↻ Update</button>
     </div>
@@ -29,6 +29,7 @@
   </header>
 
   <main>
+    <button id="get-results" class="get-btn" type="button">↻ Get latest results<span id="gr-note" class="gr-note"></span></button>
     <div id="games-view">
       <div id="clubstat" class="clubstat"></div>
       <section id="nextup" class="nextup"></section>
@@ -53,7 +54,7 @@
       </div>
       <input id="picker-search" type="search" placeholder="Type your name…" autocomplete="off">
       <div id="picker-list" class="picker-list"></div>
-      <button id="picker-clear" class="picker-clear" type="button">Show everyone (sign out)</button>
+      <button id="picker-clear" class="picker-clear" type="button">Show everyone (clear)</button>
     </div>
   </div>
 

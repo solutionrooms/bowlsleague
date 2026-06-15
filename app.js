@@ -11,8 +11,12 @@ const meBtn = $('me-btn'), scopeEl = $('scope'), clubstatEl = $('clubstat');
 const gamesView = $('games-view'), rankingsView = $('rankings-view'), rankingsEl = $('rankings');
 const picker = $('picker'), pickerList = $('picker-list'), pickerSearch = $('picker-search');
 
-const LS_ME = 'wb.me', LS_SCOPE = 'wb.scope', LS_TAB = 'wb.tab';
-const state = { teams: [], roster: [], aliases: {}, rowEls: new Map(), weekExpanded: false, me: null, scope: 'mine', tab: 'games' };
+const LS_ME = 'wb.me', LS_SCOPE = 'wb.scope', LS_TAB = 'wb.tab', LS_MATCHES = 'wb.matches', LS_CUTOFF = 'wb.cutoff';
+const state = {
+  teams: [], roster: [], aliases: {}, rowEls: new Map(), weekExpanded: false,
+  me: null, scope: 'mine', tab: 'games',
+  matches: {}, matchTs: 0, playerStats: [], clubGame: null, cutoff: true, rankExpanded: false,
+};
 const canonC = n => state.aliases[n] || n;
 
 // ---- helpers -------------------------------------------------------------
@@ -82,7 +86,7 @@ function updateChrome() {
     scopeEl.hidden = false;
     scopeEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.scope === state.scope));
   } else {
-    meBtn.textContent = '👤 Sign in';
+    meBtn.textContent = '👤 It\'s me';
     meBtn.classList.remove('on');
     scopeEl.hidden = true;
   }
@@ -200,48 +204,96 @@ function renderNextUp() {
   nextupEl.innerHTML = `<h2>Next games</h2>${renderDay(days[0])}${extra}`;
 }
 
-// Cross-league club aggregate (always club-wide, regardless of the filter).
+// Club average. Once results are loaded we can show average score per game
+// (to 21), split home/away — comparable across leagues. Before then, fall back
+// to the per-match aggregate (which isn't comparable across leagues).
 function renderClubStat() {
-  let P = 0, W = 0, L = 0, F = 0, A = 0, n = 0;
+  if (state.clubGame && (state.clubGame.home.games || state.clubGame.away.games)) {
+    const g = state.clubGame;
+    const avg = o => (o.games ? (o.for / o.games).toFixed(1) : '–');
+    clubstatEl.hidden = false;
+    clubstatEl.innerHTML = `<div class="cs-big">${avg(g.home)}<span class="vs"> home · </span>${avg(g.away)}<span class="vs"> away</span></div>
+      <div class="cs-sub">club average <b>score per game</b> (to 21) · ${g.home.games + g.away.games} games played</div>`;
+    return;
+  }
+  let P = 0, W = 0, L = 0, n = 0;
   for (const t of state.teams) {
     const s = t.summary;
     if (!s || s.played == null) continue;
-    P += s.played || 0; W += s.won || 0; L += s.lost || 0; F += s.for || 0; A += s.against || 0; n++;
+    P += s.played || 0; W += s.won || 0; L += s.lost || 0; n++;
   }
   if (!P) { clubstatEl.hidden = true; return; }
   clubstatEl.hidden = false;
-  const af = Math.round(F / P), aa = Math.round(A / P);
-  clubstatEl.innerHTML = `<div class="cs-big">${af}<span class="vs">–</span>${aa}</div>
-    <div class="cs-sub">club average per match · <b>${W}W</b>–<b>${L}L</b> over ${P} games · ${n} teams</div>`;
+  clubstatEl.innerHTML = `<div class="cs-sub"><b>${W}W</b>–<b>${L}L</b> across ${n} teams · tap “Get latest results” for average score per game</div>`;
 }
 
-// Player rankings — aggregate each player across their teams, rank by win %.
-function renderRankings() {
-  const allowed = allowedLeaguesSet();
-  const map = new Map();
+// Aggregate per-player and per-venue scoring. Bowls averages come free from
+// data.json; cgleague comes from on-demand match pages cached in state.matches.
+function buildAgg() {
+  const agg = new Map();
+  const get = name => {
+    if (!agg.has(name)) agg.set(name, { name, games: 0, sumFor: 0, sumAgainst: 0, won: 0, lost: 0, leagues: new Set() });
+    return agg.get(name);
+  };
+  const club = { home: { for: 0, against: 0, games: 0 }, away: { for: 0, against: 0, games: 0 } };
+  let haveCg = false;
   for (const t of state.teams) {
-    if (allowed && !allowed.has(t.leagueShort)) continue;
-    for (const p of (t.players || [])) {
-      const name = canonC(p.name);
-      if (!map.has(name)) map.set(name, { name, played: 0, won: 0, lost: 0, leagues: new Set() });
-      const e = map.get(name);
-      e.played += p.played || 0; e.won += p.won || 0; e.lost += p.lost || 0; e.leagues.add(t.leagueShort);
+    if (t.source === 'bowlsresults') {
+      for (const p of (t.players || [])) {
+        const e = get(canonC(p.name));
+        e.games += p.played || 0; e.sumFor += p.for || 0; e.sumAgainst += p.against || 0;
+        e.won += p.won || 0; e.lost += p.lost || 0; e.leagues.add(t.leagueShort);
+      }
+      for (const f of (t.fixtures || [])) {
+        if (f.played && f.rinks) { const v = f.venue === 'Home' ? 'home' : 'away'; club[v].for += f.for; club[v].against += f.against; club[v].games += f.rinks; }
+      }
+    } else {
+      for (const f of (t.fixtures || [])) {
+        const m = f.played && f.matchUrl && state.matches[f.matchUrl];
+        if (!m) continue;
+        haveCg = true;
+        const home = f.venue === 'Home';
+        for (const g of m.games) {
+          const pl = home ? g.hp : g.ap, sf = home ? g.hs : g.as, sa = home ? g.as : g.hs;
+          if (!pl) continue;
+          const e = get(canonC(pl));
+          e.games++; e.sumFor += sf; e.sumAgainst += sa; e.won += sf > sa ? 1 : 0; e.lost += sf < sa ? 1 : 0; e.leagues.add(t.leagueShort);
+          const v = home ? 'home' : 'away'; club[v].for += sf; club[v].against += sa; club[v].games++;
+        }
+      }
     }
   }
-  const list = [...map.values()].filter(e => e.played > 0);
-  list.forEach(e => { e.pct = e.played ? e.won / e.played : 0; });
-  list.sort((a, b) => b.pct - a.pct || b.won - a.won || b.played - a.played || a.name.localeCompare(b.name));
-  if (!list.length) { rankingsEl.innerHTML = `<div class="rk-empty">No player data yet.</div>`; return; }
-  const meName = (state.me || '').toLowerCase();
-  const rows = list.map((e, i) =>
-    `<div class="rank-row ${e.name.toLowerCase() === meName ? 'me' : ''}"><span class="rk-pos">${i + 1}</span>` +
-    `<div class="rk-main"><div class="rk-name">${esc(e.name)}</div><div class="rk-sub">${esc([...e.leagues].sort().join(' · '))} · ${e.played} games</div></div>` +
-    `<span class="rk-rec">${e.won}<span class="l">–${e.lost}</span></span><span class="rk-pct">${Math.round(e.pct * 100)}%</span></div>`
-  ).join('');
-  rankingsEl.innerHTML = `<h2 class="rk-h">Player rankings <span>· by win % (W–L)${allowed ? ' · your leagues' : ''}</span></h2><div class="rank-list">${rows}</div>`;
+  state.playerStats = [...agg.values()].map(e => ({
+    name: e.name, games: e.games, avgFor: e.games ? e.sumFor / e.games : 0,
+    won: e.won, lost: e.lost, leagues: [...e.leagues].sort(),
+  }));
+  state.clubGame = haveCg ? club : null;
+  state.haveCg = haveCg;
 }
 
-function renderAll() { render(); renderNextUp(); renderClubStat(); renderRankings(); }
+// Player rankings — by average score per game (to 21). Top 10, then "more".
+function renderRankings() {
+  const allowed = allowedLeaguesSet();
+  let list = state.playerStats.filter(p => !allowed || p.leagues.some(l => allowed.has(l)));
+  if (state.cutoff) list = list.filter(p => p.games >= 5);
+  list.sort((a, b) => b.avgFor - a.avgFor || b.games - a.games || a.name.localeCompare(b.name));
+  const meName = (state.me || '').toLowerCase();
+  const shown = state.rankExpanded ? list : list.slice(0, 10);
+  const rows = shown.map((p, i) =>
+    `<div class="rank-row ${p.name.toLowerCase() === meName ? 'me' : ''}"><span class="rk-pos">${i + 1}</span>` +
+    `<div class="rk-main"><div class="rk-name">${esc(p.name)}</div><div class="rk-sub">${esc(p.leagues.join(' · '))} · ${p.games} games · ${p.won}–${p.lost}</div></div>` +
+    `<span class="rk-pct">${p.avgFor.toFixed(1)}</span></div>`
+  ).join('');
+  const ctl = `<div class="rk-ctl"><span>avg score per game${allowed ? ' · your leagues' : ''}</span><button class="rk-cut ${state.cutoff ? 'on' : ''}" type="button" data-cut>Min 5 games</button></div>`;
+  const note = state.haveCg ? '' : `<div class="rk-note">Showing Staffordshire Ladies only — tap “Get latest results” above to include the cgleague leagues.</div>`;
+  const more = list.length > 10
+    ? (state.rankExpanded ? `<button class="nu-expand" type="button" data-rk="less">Show top 10 ▴</button>` : `<button class="nu-expand" type="button" data-rk="more">Show all ${list.length} ▾</button>`)
+    : '';
+  const body = shown.length ? `<div class="rank-list">${rows}</div>${more}` : `<div class="rk-empty">No players (try turning off the 5-game minimum).</div>`;
+  rankingsEl.innerHTML = ctl + note + body;
+}
+
+function renderAll() { buildAgg(); render(); renderNextUp(); renderClubStat(); renderRankings(); }
 
 // ---- expand / scope / picker events --------------------------------------
 nextupEl.addEventListener('click', e => {
@@ -355,6 +407,7 @@ async function liveRefresh() {
     try { const fresh = await refreshTeam(team); state.teams[idx] = fresh; replaceRow(fresh); ok++; } catch { /* keep snapshot row */ }
     renderNextUp();
   });
+  buildAgg();
   renderClubStat();
   renderRankings();
   refreshBtn.disabled = false;
@@ -362,6 +415,50 @@ async function liveRefresh() {
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   updTime.textContent = ok ? `Updated ${now}` : 'Showing saved data';
 }
+
+// ---- on-demand match results (player averages, per-game club stat) -------
+function loadMatches() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_MATCHES) || '{}');
+    state.matches = c.matches || {};
+    state.matchTs = c.ts || 0;
+  } catch { state.matches = {}; state.matchTs = 0; }
+}
+function saveMatches() {
+  try { localStorage.setItem(LS_MATCHES, JSON.stringify({ ts: state.matchTs, matches: state.matches })); } catch { /* quota */ }
+}
+async function getResults() {
+  const btn = $('get-results'), note = $('gr-note');
+  const urls = [];
+  for (const t of state.teams) {
+    if (t.source === 'bowlsresults') continue; // bowls averages come free in data.json
+    for (const f of (t.fixtures || [])) {
+      if (f.played && f.matchUrl && !state.matches[f.matchUrl]) urls.push(f.matchUrl);
+    }
+  }
+  btn.disabled = true;
+  let ok = 0;
+  if (urls.length) {
+    let done = 0;
+    note.textContent = ` · loading 0/${urls.length}…`;
+    await mapLimit(urls, 6, async url => {
+      try { const r = parseMatchPage(await proxyFetch(url)); if (r.games.length) { state.matches[url] = r; ok++; } } catch { /* skip failed */ }
+      done++; note.textContent = ` · loading ${done}/${urls.length}…`;
+    });
+    if (ok) { state.matchTs = Date.now(); saveMatches(); }
+  }
+  btn.disabled = false;
+  const stamp = state.matchTs ? ` · updated ${new Date(state.matchTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : '';
+  note.textContent = (urls.length && !ok) ? ' · couldn’t reach results — try again' : stamp;
+  buildAgg(); renderClubStat(); renderRankings();
+}
+
+$('get-results').addEventListener('click', getResults);
+rankingsEl.addEventListener('click', e => {
+  if (e.target.closest('[data-rk="more"]')) { state.rankExpanded = true; renderRankings(); }
+  else if (e.target.closest('[data-rk="less"]')) { state.rankExpanded = false; renderRankings(); }
+  else if (e.target.closest('[data-cut]')) { state.cutoff = !state.cutoff; localStorage.setItem(LS_CUTOFF, state.cutoff ? 'on' : 'off'); renderRankings(); }
+});
 
 // ---- boot ----------------------------------------------------------------
 async function init() {
@@ -371,10 +468,13 @@ async function init() {
     state.teams = data.teams || [];
     state.roster = data.roster || [];
     state.aliases = data.aliases || {};
+    state.cutoff = localStorage.getItem(LS_CUTOFF) !== 'off';
+    loadMatches();
     readIdentity();
     setTab(localStorage.getItem(LS_TAB) || 'games');
     updateChrome();
     renderAll();
+    if (state.matchTs) $('gr-note').textContent = ` · updated ${new Date(state.matchTs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
     if (data.updated) updTime.textContent = `Snapshot ${new Date(data.updated).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
   } catch {
     board.innerHTML = `<p class="loading">Couldn't load saved data — fetching live…</p>`;
