@@ -350,7 +350,7 @@ function playerGames(name) {
         const pl = home ? g.hp : g.ap, my = home ? g.hs : g.as, opp = home ? g.as : g.hs, oppP = home ? g.ap : g.hp;
         if (my > 30 || opp > 30) continue;
         if (canonC(pl).toLowerCase() === target) {
-          out.push({ dateISO: f.dateISO, date: f.date, oppTeam: f.opponent, venue: f.venue, my, opp, oppP, url: f.matchUrl });
+          out.push({ dateISO: f.dateISO, date: f.date, league: t.leagueShort, team: t.label, oppTeam: f.opponent, venue: f.venue, my, opp, oppP, url: f.matchUrl });
         }
       }
     }
@@ -368,7 +368,8 @@ function openPlayerModal(name) {
     const rows = games.map(g => {
       const res = g.my > g.opp ? 'win' : g.my < g.opp ? 'loss' : 'draw';
       return `<a class="pg" href="${esc(g.url)}"><span class="pg-d">${esc(fShort(g.dateISO, g.date))}</span>` +
-        `<span class="pg-opp">${esc(g.oppP)} · ${esc(g.oppTeam)} ${g.venue === 'Home' ? '(H)' : '(A)'}</span>` +
+        `<span class="pg-mid"><span class="pg-opp">${esc(g.oppP)} · ${esc(g.oppTeam)} ${g.venue === 'Home' ? '(H)' : '(A)'}</span>` +
+        `<span class="pg-team">${esc(g.league)} · ${esc(g.team)}</span></span>` +
         `<span class="pg-sc ${res}">${g.my}–${g.opp}</span></a>`;
     }).join('');
     html = `<div class="pm-sum">${games.length} games · ${w}–${l} · avg ${avg}</div>${rows}`;
