@@ -2,7 +2,7 @@
 // from the source sites (via a CORS proxy). Supports "signing in" as a player
 // (stored locally + in the URL) to filter to that player's leagues.
 
-import { parseTeamPage, parseDivPage, composeTeam } from './parser.js';
+import { parseTeamPage, parseDivPage, composeTeam, parseMatchPage } from './parser.js';
 import { composeBowls } from './parser-bowlsresults.js';
 
 const $ = id => document.getElementById(id);
