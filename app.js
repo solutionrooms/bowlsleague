@@ -282,7 +282,8 @@ function renderRankings() {
   const shown = state.rankExpanded ? list : list.slice(0, 10);
   const rows = shown.map((p, i) =>
     `<div class="rank-row ${p.name.toLowerCase() === meName ? 'me' : ''}"><span class="rk-pos">${i + 1}</span>` +
-    `<div class="rk-main"><div class="rk-name">${esc(p.name)}</div><div class="rk-sub">${esc(p.leagues.join(' · '))} · ${p.games} games · ${p.won}–${p.lost}</div></div>` +
+    `<div class="rk-main"><div class="rk-line1"><span class="rk-name">${esc(p.name)}</span><span class="rk-gp">${p.games} games · ${p.won}–${p.lost}</span></div>` +
+    `<div class="rk-sub">${esc(p.leagues.join(' · '))}</div></div>` +
     `<span class="rk-pct">${p.avgFor.toFixed(1)}</span></div>`
   ).join('');
   const ctl = `<div class="rk-ctl"><span>avg score per game${allowed ? ' · your leagues' : ''}</span><button class="rk-cut ${state.cutoff ? 'on' : ''}" type="button" data-cut>Min 5 games</button></div>`;
