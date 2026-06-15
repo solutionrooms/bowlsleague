@@ -28,12 +28,21 @@ export default {
       const p = reqUrl.searchParams;
       const event = (p.get('e') || '').slice(0, 40);
       if (event && env.DB) {
+        // Salted SHA-256 of the IP (first 64 bits) — counts unique devices
+        // without storing the IP. The salt is a secret, so it isn't reversible.
+        let iphash = '';
+        const ip = request.headers.get('CF-Connecting-IP') || '';
+        if (ip && env.IP_SALT) {
+          const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(env.IP_SALT + '|' + ip));
+          iphash = [...new Uint8Array(buf)].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
         try {
           await env.DB.prepare(
-            'INSERT INTO events (ts, country, event, player, detail) VALUES (?,?,?,?,?)'
+            'INSERT INTO events (ts, country, iphash, event, player, detail) VALUES (?,?,?,?,?,?)'
           ).bind(
             new Date().toISOString(),
             request.headers.get('CF-IPCountry') || '',
+            iphash,
             event,
             (p.get('p') || '').slice(0, 60),
             (p.get('d') || '').slice(0, 60),
