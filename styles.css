@@ -34,17 +34,24 @@ a { color: inherit; text-decoration: none; }
 /* Next up (7 days) */
 .nextup { margin: 10px 0; }
 .nextup h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 5px; }
+.nu-day { font-size: .76rem; font-weight: 700; color: var(--next); margin: 8px 0 4px; }
 .nu {
   display: flex; align-items: baseline; gap: 7px; padding: 4px 9px; background: var(--card);
   border: 1px solid var(--line); border-radius: 8px; margin-bottom: 3px; font-size: .83rem;
 }
 .nu:hover { border-color: var(--green); }
-.nu .nu-d { color: var(--next); font-weight: 700; flex: none; min-width: 62px; }
-.nu .nu-t { font-weight: 600; flex: none; }
+.nu .nu-lg { color: var(--muted); flex: none; }
+.nu .nu-t { font-weight: 700; flex: none; }
 .nu .nu-vs { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nu .nu-loc { font-weight: 600; }
 .nu .nu-loc.home { color: var(--green); } .nu .nu-loc.away { color: var(--draw); }
 .nu-empty { color: var(--muted); font-size: .85rem; padding: 4px 2px; }
+.nu-expand {
+  font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; color: var(--next);
+  background: transparent; border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 10px; margin-top: 4px; width: 100%;
+}
+.nu-expand:hover { border-color: var(--next); }
 
 /* League groups + team rows */
 .lg { margin-bottom: 14px; }
@@ -89,10 +96,3 @@ a { color: inherit; text-decoration: none; }
 .foot { max-width: 760px; margin: 0 auto; padding: 14px 12px 30px; color: var(--muted); font-size: .76rem; }
 .foot a { color: var(--next); }
 #upd-time { white-space: nowrap; }
-
-/* Wider screens: two team rows side by side for less scrolling */
-@media (min-width: 620px) {
-  .teams { display: grid; grid-template-columns: 1fr 1fr; }
-  .team { border-top: 0; border-bottom: 1px solid var(--line); }
-  .team:nth-child(odd) { border-right: 1px solid var(--line); }
-}

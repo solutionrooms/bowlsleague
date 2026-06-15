@@ -9,7 +9,7 @@ const nextupEl = document.getElementById('nextup');
 const refreshBtn = document.getElementById('refresh');
 const updTime = document.getElementById('upd-time');
 
-const state = { teams: [], rowEls: new Map() };
+const state = { teams: [], rowEls: new Map(), weekExpanded: false };
 
 // ---- helpers -------------------------------------------------------------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -103,24 +103,40 @@ function renderNextUp() {
   for (const t of state.teams) {
     for (const f of (t.fixtures || [])) {
       if (!f.played && f.dateISO && f.dateISO >= TODAY && f.dateISO <= PLUS7) {
-        list.push({ dateISO: f.dateISO, date: f.date, team: t.label, opponent: f.opponent, venue: f.venue, link: f.matchUrl || t.urls.team });
+        list.push({ dateISO: f.dateISO, league: t.leagueShort, team: t.label, opponent: f.opponent, venue: f.venue, link: f.matchUrl || t.urls.team });
       }
     }
   }
-  list.sort((a, b) => a.dateISO.localeCompare(b.dateISO) || a.team.localeCompare(b.team));
+  list.sort((a, b) => a.dateISO.localeCompare(b.dateISO) || a.league.localeCompare(b.league) || a.team.localeCompare(b.team));
   if (!list.length) {
-    nextupEl.innerHTML = `<h2>Next 7 days</h2><div class="nu-empty">No games scheduled in the next 7 days.</div>`;
+    nextupEl.innerHTML = `<h2>Next games</h2><div class="nu-empty">No games scheduled in the next 7 days.</div>`;
     return;
   }
-  const rows = list.map(x => {
-    const home = x.venue === 'Home';
-    return `<a class="nu" href="${esc(x.link)}" target="_blank" rel="noopener">
-      <span class="nu-d">${esc(fFull(x.dateISO, x.date))}</span>
-      <span class="nu-t">${esc(x.team)}</span>
-      <span class="nu-vs">${home ? 'vs' : 'at'} ${esc(x.opponent)} · <span class="nu-loc ${home ? 'home' : 'away'}">${home ? 'Home' : 'Away'}</span></span>
-    </a>`;
-  }).join('');
-  nextupEl.innerHTML = `<h2>Next 7 days</h2>${rows}`;
+  // Group by day; show only the next matchday, with the rest behind an expander.
+  const days = [];
+  const byDay = new Map();
+  for (const x of list) {
+    if (!byDay.has(x.dateISO)) { byDay.set(x.dateISO, []); days.push(x.dateISO); }
+    byDay.get(x.dateISO).push(x);
+  }
+  const renderDay = iso => {
+    const games = byDay.get(iso).map(x => {
+      const home = x.venue === 'Home';
+      return `<a class="nu" href="${esc(x.link)}" target="_blank" rel="noopener"><span class="nu-lg">${esc(x.league)}</span><span class="nu-t">${esc(x.team)}</span><span class="nu-vs">${home ? 'vs' : 'at'} ${esc(x.opponent)} · <span class="nu-loc ${home ? 'home' : 'away'}">${home ? 'Home' : 'Away'}</span></span></a>`;
+    }).join('');
+    return `<div class="nu-day">${esc(fFull(iso))}</div>${games}`;
+  };
+  const restDays = days.slice(1);
+  let extra = '';
+  if (restDays.length) {
+    if (state.weekExpanded) {
+      extra = restDays.map(renderDay).join('') + `<button class="nu-expand" type="button">Show less ▴</button>`;
+    } else {
+      const more = restDays.reduce((n, iso) => n + byDay.get(iso).length, 0);
+      extra = `<button class="nu-expand" type="button">Full week · ${more} more ▾</button>`;
+    }
+  }
+  nextupEl.innerHTML = `<h2>Next games</h2>${renderDay(days[0])}${extra}`;
 }
 
 // ---- live refresh via CORS proxy -----------------------------------------
@@ -217,4 +233,7 @@ async function init() {
 }
 
 refreshBtn.addEventListener('click', liveRefresh);
+nextupEl.addEventListener('click', e => {
+  if (e.target.closest('.nu-expand')) { state.weekExpanded = !state.weekExpanded; renderNextUp(); }
+});
 init();
