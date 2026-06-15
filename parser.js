@@ -207,7 +207,8 @@ export function parseMatchPage(html) {
   for (const r of getRows(tbl)) {
     const c = getCells(r).map(stripTags);
     if (c.length < 4) continue;
-    if (/^name$/i.test(c[0]) || /^total$/i.test(c[0]) || !c[0]) continue;
+    // Skip header and the summary rows (TOTAL, MATCH POINTS, etc.).
+    if (!c[0] || /^(name|total|match\s*points|points|aggregate)$/i.test(c[0])) continue;
     const hs = parseInt(c[1], 10);
     // away name = first non-empty, non-numeric cell after the home score
     // (skips the GAIN column, which is empty for the loser).
@@ -215,7 +216,9 @@ export function parseMatchPage(html) {
     while (k < c.length && (c[k] === '' || /^\d+$/.test(c[k]))) k++;
     const ap = c[k];
     const as = parseInt(c[k + 1], 10);
-    if (!c[0] || !ap || !Number.isFinite(hs) || !Number.isFinite(as)) continue;
+    // A rink is "first to 21" — real player scores are 0..30; bigger values are
+    // aggregate/summary rows that slipped through.
+    if (!ap || !Number.isFinite(hs) || !Number.isFinite(as) || hs > 30 || as > 30) continue;
     games.push({ hp: c[0], hs, ap, as });
   }
   return { games };

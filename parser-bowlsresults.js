@@ -3,7 +3,7 @@
 // per-division/per-team pages: tables, fixtures, results and team averages.
 // Pure JS (no DOM / Node APIs); runs at build time and in the browser.
 
-import { stripTags, pickLastNext } from './parser.js';
+import { stripTags, pickLastNext } from './parser.js?v=DEV';
 
 export const BOWLS_BASE = 'https://bowlsresults.co.uk/results24/';
 

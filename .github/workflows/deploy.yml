@@ -31,6 +31,8 @@ jobs:
           node scripts/scrape.mjs
           mkdir -p _site
           cp index.html styles.css app.js parser.js parser-bowlsresults.js _site/
+          # Stamp a cache-busting version into the asset URLs so updates land immediately.
+          sed -i "s/?v=DEV/?v=${GITHUB_SHA::7}/g" _site/index.html _site/app.js _site/parser-bowlsresults.js
       - uses: actions/configure-pages@v5
         with:
           enablement: true
