@@ -1,211 +1,127 @@
-// app.js — loads the baseline data.json for an instant paint, renders the
-// board, then re-fetches every team LIVE from cgleague (via a CORS proxy)
-// and re-renders each card as fresh data arrives.
+// app.js — paints from the data.json snapshot, then re-fetches each team live
+// from the source sites (via a CORS proxy) and re-renders rows in place.
 
 import { parseTeamPage, parseDivPage, composeTeam } from './parser.js';
 import { composeBowls } from './parser-bowlsresults.js';
 
 const board = document.getElementById('board');
-const statusEl = document.getElementById('status');
-const refreshBtn = document.getElementById('refresh');
 const nextupEl = document.getElementById('nextup');
-const footUpdated = document.getElementById('foot-updated');
+const refreshBtn = document.getElementById('refresh');
+const updTime = document.getElementById('upd-time');
 
-const state = { teams: [], cardEls: new Map() };
+const state = { teams: [], rowEls: new Map() };
 
 // ---- helpers -------------------------------------------------------------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const ordinal = n => {
-  if (!n) return '';
-  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-};
-const divShort = d => (d || '').split(' - ')[0] || '';
+const ordinal = n => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+// Division headings vary ("Division 2 - Season 2026", "Thursday Division - Division 3 - Season 2026",
+// or just "Season 2026"). Prefer the "Division X" segment; fall back to the D code in the link.
+function divShort(d) {
+  const parts = (d || '').split(' - ').map(s => s.trim()).filter(s => s && !/^season\b/i.test(s));
+  const pick = parts.find(p => /^division\s+\S+/i.test(p)) || parts.find(p => /division/i.test(p)) || parts[parts.length - 1] || '';
+  return pick.replace(/^Division\s*/i, 'Div ');
+}
+function divLabel(t) {
+  const s = divShort(t.division);
+  if (s) return s;
+  const m = /[?&]d=([^&]+)/i.exec(t.urls.division || '');
+  return m ? 'Div ' + decodeURIComponent(m[1]) : t.leagueShort;
+}
 const venueTag = v => (v ? `(${v[0].toUpperCase()})` : '');
 
-function relTime(iso) {
-  const then = new Date(iso).getTime();
-  if (isNaN(then)) return '';
-  const mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs} hr${hrs > 1 ? 's' : ''} ago`;
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-}
+const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ymd = iso => { const [y, m, d] = (iso || '').split('-').map(Number); return y ? new Date(y, m - 1, d) : null; };
+const fShort = (iso, raw) => { const dt = ymd(iso); return dt ? `${WD[dt.getDay()]} ${dt.getDate()}` : (raw || ''); };
+const fFull = (iso, raw) => { const dt = ymd(iso); return dt ? `${WD[dt.getDay()]} ${dt.getDate()} ${MO[dt.getMonth()]}` : (raw || ''); };
+const localISO = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+const TODAY = localISO(new Date());
+const PLUS7 = localISO(new Date(Date.now() + 7 * 864e5));
 
-function setStatus(kind, text) {
-  statusEl.className = 'status ' + kind;
-  statusEl.textContent = text;
-}
-
-// ---- rendering -----------------------------------------------------------
-function gameBlock(label, g, cls) {
-  if (!g) {
-    const msg = label === 'Next' ? 'Season complete' : 'Not started';
-    return `<div class="game ${cls}"><div class="game-label">${label}</div><div class="empty">${msg}</div></div>`;
-  }
-  const opp = `<div class="game-opp">vs ${esc(g.opponent)} <span class="ha">${venueTag(g.venue)}</span></div>`;
-  if (g.played) {
-    const r = g.result === 'W' ? 'win' : g.result === 'L' ? 'loss' : 'draw';
-    return `<div class="game ${cls}">
-      <div class="game-label">${label}</div>
-      <div class="game-date">${esc(g.date)}</div>${opp}
-      <div class="game-score ${r}">${g.for}–${g.against} <span class="badge ${r}">${g.result}</span></div>
-    </div>`;
-  }
-  return `<div class="game ${cls}">
-    <div class="game-label">${label}</div>
-    <div class="game-date">${esc(g.date)}</div>${opp}
-  </div>`;
-}
-
-function standingsTable(t) {
-  if (!t.standings || !t.standings.length) return '';
-  const rows = t.standings.map(s => `<tr class="${s.isWestlands ? 'me' : ''}">
-    <td>${s.pos}</td><td class="name">${esc(s.name)}</td>
-    <td>${s.p}</td><td>${s.w}</td><td>${s.l}</td><td>${s.total}</td><td>${esc(s.ave)}</td></tr>`).join('');
-  return `<table class="mini"><thead><tr><th>#</th><th class="name">Team</th><th>P</th><th>W</th><th>L</th><th>Pts</th><th>Ave</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function fixturesTable(t) {
-  if (!t.fixtures || !t.fixtures.length) return '<p class="note">No fixtures listed.</p>';
-  const nextDate = t.nextGame ? t.nextGame.date : null;
-  const rows = t.fixtures.map(f => {
-    if (f.played) {
-      const r = f.for > f.against ? 'res-w' : f.for < f.against ? 'res-l' : 'res-d';
-      const res = f.for > f.against ? 'W' : f.for < f.against ? 'L' : 'D';
-      const link = f.matchUrl ? `<a href="${esc(f.matchUrl)}" target="_blank" rel="noopener">${f.for}–${f.against}</a>` : `${f.for}–${f.against}`;
-      return `<tr><td>${esc(f.date)}</td><td class="name">${esc(f.opponent)}</td><td>${venueTag(f.venue)}</td><td>${link} <span class="${r}">${res}</span></td></tr>`;
-    }
-    const isNext = f.date === nextDate;
-    return `<tr class="upcoming ${isNext ? 'nextrow' : ''}"><td>${esc(f.date)}</td><td class="name">${esc(f.opponent)}</td><td>${venueTag(f.venue)}</td><td>${isNext ? 'next' : '—'}</td></tr>`;
-  }).join('');
-  return `<table class="mini"><thead><tr><th>Date</th><th class="name">Opponent</th><th>H/A</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function playersTable(t) {
-  if (!t.players || !t.players.length) return '';
-  const rows = t.players.map(p => {
-    const name = p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name);
-    return `<tr><td class="name">${name}</td><td>${p.played}</td><td class="w">${p.won}</td><td class="l">${p.lost}</td><td>${esc(p.ave)}</td></tr>`;
-  }).join('');
-  return `<table class="mini"><thead><tr><th class="name">Player</th><th>P</th><th>W</th><th>L</th><th>Ave</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-function cardHTML(t) {
-  const pos = t.position
-    ? `<div class="pos ${t.position <= Math.ceil(t.teamsInDivision / 3) ? 'top' : t.position === t.teamsInDivision ? 'bottom' : ''}">${ordinal(t.position)}<small>of ${t.teamsInDivision}</small></div>`
-    : '';
-
+// ---- a single compact team row -------------------------------------------
+function teamRowHTML(t) {
+  const teamLink = t.urls.team;
   if (t.error) {
-    return `<div class="card-head"><div><span class="team-name">${esc(t.label)}</span><span class="division">${esc(t.leagueShort)}</span></div></div>
-      <div class="more" style="display:block"><p class="note">Couldn't load this team right now. <a href="${esc(t.urls.team)}" target="_blank" rel="noopener">Open on cgleague ↗</a></p></div>`;
+    return `<div class="t-id"><a class="name" href="${esc(teamLink)}" target="_blank" rel="noopener">${esc(t.label)}</a><span class="div">couldn't load — tap to open</span></div>`;
   }
+  const divLink = t.urls.division || t.urls.tables;
+  const posCls = t.position ? (t.position <= Math.ceil((t.teamsInDivision || 1) / 3) ? 'top' : t.position === t.teamsInDivision ? 'bottom' : '') : '';
+  const posHtml = t.position ? `<span class="pos ${posCls}">${ordinal(t.position)}</span>` : '';
+  const divText = divLabel(t);
 
-  // Build the expandable tabs only for sections that have data.
-  const tabs = [];
-  if (t.standings && t.standings.length) tabs.push(['table', 'Table', standingsTable(t)]);
-  tabs.push(['fixtures', 'Fixtures', fixturesTable(t)]);
-  if (t.players && t.players.length) tabs.push(['players', 'Players', playersTable(t)]);
+  const lg = t.lastGame;
+  const lastHtml = lg
+    ? `<a class="g ${lg.result === 'W' ? 'win' : lg.result === 'L' ? 'loss' : 'draw'}" href="${esc(lg.matchUrl || teamLink)}" target="_blank" rel="noopener"><b class="res">${lg.result}</b><span class="sc">${lg.for}–${lg.against}</span><span class="opp">${esc(lg.opponent)} ${venueTag(lg.venue)}</span></a>`
+    : `<span class="g empty"><b class="res">·</b>no result yet</span>`;
 
-  const tabBtns = tabs.map((tb, i) => `<button class="tab ${i === 0 ? 'active' : ''}" data-tab="${tb[0]}">${tb[1]}</button>`).join('');
-  const panels = tabs.map((tb, i) => `<div class="panel ${i === 0 ? 'active' : ''}" data-panel="${tb[0]}">${tb[2]}</div>`).join('');
+  const ng = t.nextGame;
+  const nextHtml = ng
+    ? `<a class="g next" href="${esc(ng.matchUrl || teamLink)}" target="_blank" rel="noopener"><span class="d">▸ ${esc(fShort(ng.dateISO, ng.date))}</span><span class="opp">${esc(ng.opponent)} ${venueTag(ng.venue)}</span></a>`
+    : `<span class="g empty next"><span class="d">▸</span>season done</span>`;
 
-  const sm = t.summary || {};
-  const record = (sm.played != null) ? `<p class="note">Played ${sm.played} · Won ${sm.won} · Lost ${sm.lost} · ${sm.for}–${sm.against} pts</p>` : '';
-
-  return `
-    <div class="card-head">
-      <div><span class="team-name">${esc(t.label)}</span><span class="division">${esc(divShort(t.division) || t.leagueShort)}</span></div>
-      ${pos}
-    </div>
-    <div class="games">
-      ${gameBlock('Last', t.lastGame, 'last')}
-      ${gameBlock('Next', t.nextGame, 'next')}
-    </div>
-    <div class="card-links">
-      <a href="${esc(t.urls.team)}" target="_blank" rel="noopener">Team page <span class="arr">↗</span></a>
-      ${t.urls.division ? `<a href="${esc(t.urls.division)}" target="_blank" rel="noopener">Division table <span class="arr">↗</span></a>` : ''}
-      <a href="${esc(t.urls.tables)}" target="_blank" rel="noopener">League tables <span class="arr">↗</span></a>
-    </div>
-    <button class="more-btn" type="button">More <span class="chev">▾</span></button>
-    <div class="more">${record}<div class="tabs">${tabBtns}</div>${panels}</div>`;
-}
-
-function makeCard(t) {
-  const el = document.createElement('article');
-  el.className = 'card' + (t.error ? ' err' : '');
-  el.dataset.id = t.id;
-  el.innerHTML = cardHTML(t);
-  return el;
+  return `<div class="t-id">${posHtml}<a class="name" href="${esc(teamLink)}" target="_blank" rel="noopener">${esc(t.label)}</a><a class="div" href="${esc(divLink)}" target="_blank" rel="noopener">${esc(divText)}</a></div>
+    <div class="games">${lastHtml}${nextHtml}</div>`;
 }
 
 function render() {
-  state.cardEls.clear();
+  state.rowEls.clear();
   board.innerHTML = '';
-  // Group by leagueShort, preserving the order teams appear in the data.
-  const groups = [];
-  const byKey = new Map();
+  const order = [];
+  const by = new Map();
   for (const t of state.teams) {
-    if (!byKey.has(t.leagueShort)) { byKey.set(t.leagueShort, []); groups.push(t.leagueShort); }
-    byKey.get(t.leagueShort).push(t);
+    if (!by.has(t.leagueShort)) { by.set(t.leagueShort, []); order.push(t.leagueShort); }
+    by.get(t.leagueShort).push(t);
   }
-  for (const key of groups) {
-    const section = document.createElement('section');
-    section.className = 'league';
-    section.innerHTML = `<h2>${esc(key)}</h2>`;
-    const cards = document.createElement('div');
-    cards.className = 'cards';
-    for (const t of byKey.get(key)) {
-      const el = makeCard(t);
-      state.cardEls.set(t.id, el);
-      cards.appendChild(el);
+  for (const key of order) {
+    const teams = by.get(key);
+    const sec = document.createElement('section');
+    sec.className = 'lg';
+    sec.innerHTML = `<a class="lg-h" href="${esc(teams[0].urls.tables)}" target="_blank" rel="noopener">${esc(key)} <span class="arr">↗</span></a>`;
+    const cont = document.createElement('div');
+    cont.className = 'teams';
+    for (const t of teams) {
+      const el = document.createElement('div');
+      el.className = 'team';
+      el.dataset.id = t.id;
+      el.innerHTML = teamRowHTML(t);
+      state.rowEls.set(t.id, el);
+      cont.appendChild(el);
     }
-    section.appendChild(cards);
-    board.appendChild(section);
+    sec.appendChild(cont);
+    board.appendChild(sec);
   }
   renderNextUp();
 }
 
-function replaceCard(t) {
-  const old = state.cardEls.get(t.id);
-  if (!old) return;
-  const wasOpen = old.classList.contains('open');
-  const activeTab = old.querySelector('.tab.active')?.dataset.tab;
-  const el = makeCard(t);
-  if (wasOpen) {
-    el.classList.add('open');
-    if (activeTab) selectTab(el, activeTab);
-  }
-  old.replaceWith(el);
-  state.cardEls.set(t.id, el);
+function replaceRow(t) {
+  const el = state.rowEls.get(t.id);
+  if (el) el.innerHTML = teamRowHTML(t);
 }
 
 function renderNextUp() {
-  const today = new Date().toISOString().slice(0, 10);
-  const upcoming = state.teams
-    .filter(t => t.nextGame && t.nextGame.dateISO && t.nextGame.dateISO >= today)
-    .sort((a, b) => a.nextGame.dateISO.localeCompare(b.nextGame.dateISO));
-  if (!upcoming.length) { nextupEl.hidden = true; return; }
-  const t = upcoming[0];
-  const g = t.nextGame;
-  nextupEl.hidden = false;
-  nextupEl.innerHTML = `<span class="nu-label">Next up</span>
-    <strong>${esc(t.label)}</strong> (${esc(t.leagueShort)}) vs ${esc(g.opponent)} ${venueTag(g.venue)} — ${esc(g.date)}`;
+  const list = [];
+  for (const t of state.teams) {
+    for (const f of (t.fixtures || [])) {
+      if (!f.played && f.dateISO && f.dateISO >= TODAY && f.dateISO <= PLUS7) {
+        list.push({ dateISO: f.dateISO, date: f.date, team: t.label, opponent: f.opponent, venue: f.venue, link: f.matchUrl || t.urls.team });
+      }
+    }
+  }
+  list.sort((a, b) => a.dateISO.localeCompare(b.dateISO) || a.team.localeCompare(b.team));
+  if (!list.length) {
+    nextupEl.innerHTML = `<h2>Next 7 days</h2><div class="nu-empty">No games scheduled in the next 7 days.</div>`;
+    return;
+  }
+  const rows = list.map(x => {
+    const home = x.venue === 'Home';
+    return `<a class="nu" href="${esc(x.link)}" target="_blank" rel="noopener">
+      <span class="nu-d">${esc(fFull(x.dateISO, x.date))}</span>
+      <span class="nu-t">${esc(x.team)}</span>
+      <span class="nu-vs">${home ? 'vs' : 'at'} ${esc(x.opponent)} · <span class="nu-loc ${home ? 'home' : 'away'}">${home ? 'Home' : 'Away'}</span></span>
+    </a>`;
+  }).join('');
+  nextupEl.innerHTML = `<h2>Next 7 days</h2>${rows}`;
 }
-
-// ---- expand / tabs (event delegation) ------------------------------------
-function selectTab(card, tab) {
-  card.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  card.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
-}
-board.addEventListener('click', e => {
-  const moreBtn = e.target.closest('.more-btn');
-  if (moreBtn) { moreBtn.closest('.card').classList.toggle('open'); return; }
-  const tab = e.target.closest('.tab');
-  if (tab) { selectTab(tab.closest('.card'), tab.dataset.tab); }
-});
 
 // ---- live refresh via CORS proxy -----------------------------------------
 const PROXIES = [
@@ -219,16 +135,24 @@ async function proxyFetch(url) {
   const target = bust(url);
   let lastErr;
   for (const proxy of PROXIES) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 11000);
     try {
-      const res = await fetch(proxy(target), { cache: 'no-store' });
+      const res = await fetch(proxy(target), { cache: 'no-store', signal: ctrl.signal });
       if (!res.ok) { lastErr = new Error('HTTP ' + res.status); continue; }
-      const txt = await res.text();
+      const txt = await res.text(); // body read is covered by the same timeout/abort
       if (txt && txt.length > 600 && /<\/(table|body|html)>/i.test(txt)) return txt;
       lastErr = new Error('unexpected content');
-    } catch (err) { lastErr = err; }
+    } catch (err) {
+      lastErr = err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
   throw lastErr || new Error('all proxies failed');
 }
+
+const extractTeamId = url => (/[?&]t=(\d+)\b/.exec(url || '') || [])[1];
 
 async function refreshTeam(team) {
   if (team.source === 'bowlsresults') {
@@ -250,39 +174,30 @@ async function refreshTeam(team) {
     try { divData = parseDivPage(await proxyFetch(team.urls.division)); } catch { /* keep prior standings */ }
   }
   const updated = composeTeam(config, teamData, divData);
+  updated.source = 'cgleague';
   updated.error = null;
   return updated;
 }
-const extractTeamId = url => (/[?&]t=(\d+)\b/.exec(url || '') || [])[1];
 
 async function mapLimit(items, limit, fn) {
   let i = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (i < items.length) { const idx = i++; await fn(items[idx], idx); }
-  });
-  await Promise.all(workers);
+  }));
 }
 
 async function liveRefresh() {
   refreshBtn.disabled = true;
-  setStatus('snapshot', 'Fetching live scores…');
-  let ok = 0, fail = 0;
+  refreshBtn.textContent = '↻ Updating…';
+  let ok = 0;
   await mapLimit(state.teams.slice(), 3, async (team, idx) => {
-    try {
-      const fresh = await refreshTeam(team);
-      state.teams[idx] = fresh;
-      replaceCard(fresh);
-      ok++;
-    } catch { fail++; }
+    try { const fresh = await refreshTeam(team); state.teams[idx] = fresh; replaceRow(fresh); ok++; } catch { /* keep snapshot row */ }
     renderNextUp();
   });
-  if (ok > 0) {
-    setStatus('live', `Live · updated ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`);
-    footUpdated.textContent = `Last live refresh: ${new Date().toLocaleString('en-GB')}${fail ? ` · ${fail} team(s) couldn't refresh` : ''}`;
-  } else {
-    setStatus('snapshot', 'Showing saved snapshot · live refresh unavailable');
-  }
   refreshBtn.disabled = false;
+  refreshBtn.textContent = '↻ Update';
+  const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  updTime.textContent = ok ? `Updated ${now}` : 'Showing saved data';
 }
 
 // ---- boot ----------------------------------------------------------------
@@ -292,10 +207,9 @@ async function init() {
     const data = await res.json();
     state.teams = data.teams || [];
     render();
-    setStatus('snapshot', `Snapshot · ${relTime(data.updated)}`);
-    if (data.updated) footUpdated.textContent = `Snapshot built: ${new Date(data.updated).toLocaleString('en-GB')}`;
-  } catch (e) {
-    board.innerHTML = `<p class="loading">Couldn't load saved data. Trying live…</p>`;
+    if (data.updated) updTime.textContent = `Snapshot ${new Date(data.updated).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+  } catch {
+    board.innerHTML = `<p class="loading">Couldn't load saved data — fetching live…</p>`;
   }
   liveRefresh();
 }
