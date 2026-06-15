@@ -129,8 +129,13 @@ function teamRowHTML(t) {
     ? `<a class="g next" href="${esc(ng.matchUrl || teamLink)}"><span class="d">▸ ${esc(fShort(ng.dateISO, ng.date))}</span><span class="opp">${esc(ng.opponent)} ${venueTag(ng.venue)}</span></a>`
     : `<span class="g empty next"><span class="d">▸</span>season done</span>`;
 
+  const ts = state.teamStats && state.teamStats[t.id];
+  const avgLine = ts && ts.games
+    ? `<div class="t-avg">avg per game · <span class="f">${(ts.for / ts.games).toFixed(1)}</span> for · <span class="a">${(ts.against / ts.games).toFixed(1)}</span> against</div>`
+    : '';
+
   return `<div class="t-id">${posHtml}<a class="name" href="${esc(teamLink)}">${esc(t.label)}</a><a class="div" href="${esc(divLink)}">${esc(divLabel(t))}</a></div>
-    <div class="games">${lastHtml}${nextHtml}</div>`;
+    <div class="games">${lastHtml}${nextHtml}</div>${avgLine}`;
 }
 
 function render() {
@@ -247,6 +252,8 @@ function buildAgg() {
     return agg.get(name);
   };
   const club = { home: { for: 0, against: 0, games: 0 }, away: { for: 0, against: 0, games: 0 } };
+  const teamStats = {};
+  const tstat = id => (teamStats[id] || (teamStats[id] = { for: 0, against: 0, games: 0 }));
   let haveCg = false;
   for (const t of state.teams) {
     if (t.source === 'bowlsresults') {
@@ -256,7 +263,11 @@ function buildAgg() {
         e.won += p.won || 0; e.lost += p.lost || 0; e.leagues.add(t.leagueShort);
       }
       for (const f of (t.fixtures || [])) {
-        if (f.played && f.rinks) { const v = f.venue === 'Home' ? 'home' : 'away'; club[v].for += f.for; club[v].against += f.against; club[v].games += f.rinks; }
+        if (f.played && f.rinks) {
+          const v = f.venue === 'Home' ? 'home' : 'away';
+          club[v].for += f.for; club[v].against += f.against; club[v].games += f.rinks;
+          const e = tstat(t.id); e.for += f.for; e.against += f.against; e.games += f.rinks;
+        }
       }
     } else {
       for (const f of (t.fixtures || [])) {
@@ -270,6 +281,7 @@ function buildAgg() {
           const e = get(canonC(pl));
           e.games++; e.sumFor += sf; e.sumAgainst += sa; e.won += sf > sa ? 1 : 0; e.lost += sf < sa ? 1 : 0; e.leagues.add(t.leagueShort);
           const v = home ? 'home' : 'away'; club[v].for += sf; club[v].against += sa; club[v].games++;
+          const te = tstat(t.id); te.for += sf; te.against += sa; te.games++;
         }
       }
     }
@@ -280,6 +292,7 @@ function buildAgg() {
   }));
   state.clubGame = haveCg ? club : null;
   state.haveCg = haveCg;
+  state.teamStats = teamStats;
 }
 
 // Player rankings — by average score per game (to 21). Top 10, then "more".
