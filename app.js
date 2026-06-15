@@ -12,6 +12,7 @@ const gamesView = $('games-view'), rankingsView = $('rankings-view'), rankingsEl
 const picker = $('picker'), pickerList = $('picker-list'), pickerSearch = $('picker-search');
 
 const LS_ME = 'wb.me', LS_SCOPE = 'wb.scope', LS_TAB = 'wb.tab', LS_MATCHES = 'wb.matches', LS_CUTOFF = 'wb.cutoff';
+const MATCH_CACHE_VER = 2; // bump when parseMatchPage changes, to drop stale cached parses
 const state = {
   teams: [], roster: [], aliases: {}, rowEls: new Map(), weekExpanded: false,
   me: null, scope: 'mine', tab: 'games',
@@ -255,7 +256,7 @@ function buildAgg() {
         const home = f.venue === 'Home';
         for (const g of m.games) {
           const pl = home ? g.hp : g.ap, sf = home ? g.hs : g.as, sa = home ? g.as : g.hs;
-          if (!pl) continue;
+          if (!pl || sf > 30 || sa > 30) continue; // guard against summary rows in stale caches
           const e = get(canonC(pl));
           e.games++; e.sumFor += sf; e.sumAgainst += sa; e.won += sf > sa ? 1 : 0; e.lost += sf < sa ? 1 : 0; e.leagues.add(t.leagueShort);
           const v = home ? 'home' : 'away'; club[v].for += sf; club[v].against += sa; club[v].games++;
@@ -424,12 +425,11 @@ async function liveRefresh() {
 function loadMatches() {
   try {
     const c = JSON.parse(localStorage.getItem(LS_MATCHES) || '{}');
-    state.matches = c.matches || {};
-    state.matchTs = c.ts || 0;
-  } catch { state.matches = {}; state.matchTs = 0; }
+    if (c.ver === MATCH_CACHE_VER) { state.matches = c.matches || {}; state.matchTs = c.ts || 0; }
+  } catch { /* ignore */ }
 }
 function saveMatches() {
-  try { localStorage.setItem(LS_MATCHES, JSON.stringify({ ts: state.matchTs, matches: state.matches })); } catch { /* quota */ }
+  try { localStorage.setItem(LS_MATCHES, JSON.stringify({ ver: MATCH_CACHE_VER, ts: state.matchTs, matches: state.matches })); } catch { /* quota */ }
 }
 async function getResults() {
   const btn = $('get-results'), note = $('gr-note');
