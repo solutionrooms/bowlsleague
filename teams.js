@@ -37,6 +37,11 @@ export const TEAMS = [
     urls: { team: teamUrl('SMBL', 'Westlands A'), tables: 'https://www.cgleague.co.uk/archives/tables.php?L=SMBL' },
   },
   {
+    id: 'smbl-b', label: 'Westlands B', leagueShort: 'Saturday Mixed',
+    leagueName: 'Saturday Mixed Bowls League', L: 'SMBL',
+    urls: { team: teamUrl('SMBL', 'Westlands B'), tables: 'https://www.cgleague.co.uk/archives/tables.php?L=SMBL' },
+  },
+  {
     id: 'oak-a', label: 'Westlands A', leagueShort: 'Oakhill',
     leagueName: 'Oakhill & District', L: 'OJ',
     urls: { team: teamUrl('OJ', 'Westlands A'), tables: 'https://www.cgleague.co.uk/oakhill/tables.php' },

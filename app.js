@@ -7,11 +7,13 @@ import { composeBowls } from './parser-bowlsresults.js';
 
 const $ = id => document.getElementById(id);
 const board = $('board'), nextupEl = $('nextup'), refreshBtn = $('refresh'), updTime = $('upd-time');
-const meBtn = $('me-btn'), scopeEl = $('scope'), scopeInfo = $('scope-info'), clubstatEl = $('clubstat');
+const meBtn = $('me-btn'), scopeEl = $('scope'), clubstatEl = $('clubstat');
+const gamesView = $('games-view'), rankingsView = $('rankings-view'), rankingsEl = $('rankings');
 const picker = $('picker'), pickerList = $('picker-list'), pickerSearch = $('picker-search');
 
-const LS_ME = 'wb.me', LS_SCOPE = 'wb.scope';
-const state = { teams: [], roster: [], rowEls: new Map(), weekExpanded: false, me: null, scope: 'mine' };
+const LS_ME = 'wb.me', LS_SCOPE = 'wb.scope', LS_TAB = 'wb.tab';
+const state = { teams: [], roster: [], aliases: {}, rowEls: new Map(), weekExpanded: false, me: null, scope: 'mine', tab: 'games' };
+const canonC = n => state.aliases[n] || n;
 
 // ---- helpers -------------------------------------------------------------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -38,14 +40,20 @@ const TODAY = localISO(new Date());
 const PLUS7 = localISO(new Date(Date.now() + 7 * 864e5));
 
 // ---- identity / filtering ------------------------------------------------
-const rosterLeagues = name => {
-  const r = state.roster.find(x => x.name.toLowerCase() === String(name || '').toLowerCase());
-  return r ? r.leagues : [];
-};
-function allowedLeagues() {
-  if (!state.me || state.scope !== 'mine') return null; // null => show everything
-  const lg = rosterLeagues(state.me);
-  return lg.length ? new Set(lg) : null;
+const rosterEntry = name => state.roster.find(x => x.name.toLowerCase() === String(name || '').toLowerCase());
+const rosterLeagues = name => (rosterEntry(name) || {}).leagues || [];
+const rosterTeams = name => (rosterEntry(name) || {}).teams || [];
+// Games board filters by the exact teams the player has turned out for...
+function allowedTeams() {
+  if (!state.me || state.scope !== 'mine') return null;
+  const t = rosterTeams(state.me);
+  return t.length ? new Set(t) : null;
+}
+// ...rankings filter by the leagues those teams are in.
+function allowedLeaguesSet() {
+  if (!state.me || state.scope !== 'mine') return null;
+  const l = rosterLeagues(state.me);
+  return l.length ? new Set(l) : null;
 }
 function saveIdentity() {
   if (state.me) {
@@ -72,14 +80,19 @@ function updateChrome() {
     meBtn.textContent = '👤 ' + state.me;
     meBtn.classList.add('on');
     scopeEl.hidden = false;
-    scopeEl.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.scope === state.scope));
-    const lg = rosterLeagues(state.me);
-    scopeInfo.textContent = lg.length ? `${lg.length} league${lg.length > 1 ? 's' : ''}` : 'no leagues found';
+    scopeEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.scope === state.scope));
   } else {
     meBtn.textContent = '👤 Sign in';
     meBtn.classList.remove('on');
     scopeEl.hidden = true;
   }
+}
+function setTab(tab) {
+  state.tab = tab;
+  localStorage.setItem(LS_TAB, tab);
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  gamesView.hidden = tab !== 'games';
+  rankingsView.hidden = tab !== 'rankings';
 }
 
 // ---- rendering -----------------------------------------------------------
@@ -106,13 +119,13 @@ function teamRowHTML(t) {
 }
 
 function render() {
-  const allowed = allowedLeagues();
+  const allowed = allowedTeams();
   state.rowEls.clear();
   board.innerHTML = '';
   const order = [];
   const by = new Map();
   for (const t of state.teams) {
-    if (allowed && !allowed.has(t.leagueShort)) continue;
+    if (allowed && !allowed.has(t.id)) continue;
     if (!by.has(t.leagueShort)) { by.set(t.leagueShort, []); order.push(t.leagueShort); }
     by.get(t.leagueShort).push(t);
   }
@@ -146,10 +159,10 @@ function replaceRow(t) {
 }
 
 function renderNextUp() {
-  const allowed = allowedLeagues();
+  const allowed = allowedTeams();
   const list = [];
   for (const t of state.teams) {
-    if (allowed && !allowed.has(t.leagueShort)) continue;
+    if (allowed && !allowed.has(t.id)) continue;
     for (const f of (t.fixtures || [])) {
       if (!f.played && f.dateISO && f.dateISO >= TODAY && f.dateISO <= PLUS7) {
         list.push({ dateISO: f.dateISO, league: t.leagueShort, team: t.label, opponent: f.opponent, venue: f.venue, link: f.matchUrl || t.urls.team });
@@ -202,15 +215,45 @@ function renderClubStat() {
     <div class="cs-sub">club average per match · <b>${W}W</b>–<b>${L}L</b> over ${P} games · ${n} teams</div>`;
 }
 
-function renderAll() { render(); renderNextUp(); renderClubStat(); }
+// Player rankings — aggregate each player across their teams, rank by win %.
+function renderRankings() {
+  const allowed = allowedLeaguesSet();
+  const map = new Map();
+  for (const t of state.teams) {
+    if (allowed && !allowed.has(t.leagueShort)) continue;
+    for (const p of (t.players || [])) {
+      const name = canonC(p.name);
+      if (!map.has(name)) map.set(name, { name, played: 0, won: 0, lost: 0, leagues: new Set() });
+      const e = map.get(name);
+      e.played += p.played || 0; e.won += p.won || 0; e.lost += p.lost || 0; e.leagues.add(t.leagueShort);
+    }
+  }
+  const list = [...map.values()].filter(e => e.played > 0);
+  list.forEach(e => { e.pct = e.played ? e.won / e.played : 0; });
+  list.sort((a, b) => b.pct - a.pct || b.won - a.won || b.played - a.played || a.name.localeCompare(b.name));
+  if (!list.length) { rankingsEl.innerHTML = `<div class="rk-empty">No player data yet.</div>`; return; }
+  const meName = (state.me || '').toLowerCase();
+  const rows = list.map((e, i) =>
+    `<div class="rank-row ${e.name.toLowerCase() === meName ? 'me' : ''}"><span class="rk-pos">${i + 1}</span>` +
+    `<div class="rk-main"><div class="rk-name">${esc(e.name)}</div><div class="rk-sub">${esc([...e.leagues].sort().join(' · '))} · ${e.played} games</div></div>` +
+    `<span class="rk-rec">${e.won}<span class="l">–${e.lost}</span></span><span class="rk-pct">${Math.round(e.pct * 100)}%</span></div>`
+  ).join('');
+  rankingsEl.innerHTML = `<h2 class="rk-h">Player rankings <span>· by win % (W–L)${allowed ? ' · your leagues' : ''}</span></h2><div class="rank-list">${rows}</div>`;
+}
+
+function renderAll() { render(); renderNextUp(); renderClubStat(); renderRankings(); }
 
 // ---- expand / scope / picker events --------------------------------------
 nextupEl.addEventListener('click', e => {
   if (e.target.closest('.nu-expand')) { state.weekExpanded = !state.weekExpanded; renderNextUp(); }
 });
 scopeEl.addEventListener('click', e => {
-  const b = e.target.closest('.seg button');
+  const b = e.target.closest('button');
   if (b) setScope(b.dataset.scope);
+});
+document.querySelector('.tabs').addEventListener('click', e => {
+  const b = e.target.closest('.tab');
+  if (b) setTab(b.dataset.tab);
 });
 
 function pickerItems(filter) {
@@ -313,6 +356,7 @@ async function liveRefresh() {
     renderNextUp();
   });
   renderClubStat();
+  renderRankings();
   refreshBtn.disabled = false;
   refreshBtn.textContent = '↻ Update';
   const now = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -326,7 +370,9 @@ async function init() {
     const data = await res.json();
     state.teams = data.teams || [];
     state.roster = data.roster || [];
+    state.aliases = data.aliases || {};
     readIdentity();
+    setTab(localStorage.getItem(LS_TAB) || 'games');
     updateChrome();
     renderAll();
     if (data.updated) updTime.textContent = `Snapshot ${new Date(data.updated).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;

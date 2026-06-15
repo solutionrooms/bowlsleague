@@ -7,7 +7,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { TEAMS, SEASON_DEFAULT } from '../teams.js';
 import { parseTeamPage, parseDivPage, composeTeam, BASE_URL } from '../parser.js';
 import { composeBowls } from '../parser-bowlsresults.js';
-import { cgNames, bowlsNames, canon } from './roster.mjs';
+import { canon, ALIASES } from './roster.mjs';
 
 // Browser UA: bowlsresults.co.uk returns an empty body to non-browser agents.
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -30,7 +30,7 @@ async function scrapeCgleague(cfg) {
   const team = composeTeam(cfg, teamData, divData);
   team.source = 'cgleague';
   team.error = null;
-  return { team, names: cgNames(teamHtml) };
+  return team;
 }
 
 async function scrapeBowls(cfg) {
@@ -40,46 +40,48 @@ async function scrapeBowls(cfg) {
     getHtml(cfg.sources.results),
     getHtml(cfg.sources.players),
   ]);
-  return { team: composeBowls(cfg, { tables, fixtures, results, players }), names: bowlsNames(players) };
+  return composeBowls(cfg, { tables, fixtures, results, players });
 }
 
 async function scrapeTeam(cfg) {
   try {
-    const { team, names } = (cfg.source === 'bowlsresults') ? await scrapeBowls(cfg) : await scrapeCgleague(cfg);
+    const team = (cfg.source === 'bowlsresults') ? await scrapeBowls(cfg) : await scrapeCgleague(cfg);
     const pos = team.position ? `${team.position}/${team.teamsInDivision}` : '?';
-    console.log(`  ok  ${cfg.id.padEnd(9)} pos ${String(pos).padEnd(6)} fixtures ${team.fixtures.length} roster ${names.length}`);
-    return { team, names, league: cfg.leagueShort };
+    console.log(`  ok  ${cfg.id.padEnd(9)} pos ${String(pos).padEnd(6)} fixtures ${team.fixtures.length} players ${team.players.length}`);
+    return team;
   } catch (e) {
     console.error(`  FAIL ${cfg.id}: ${e.message}`);
-    const team = {
+    return {
       id: cfg.id, source: cfg.source || 'cgleague', label: cfg.label, leagueShort: cfg.leagueShort,
       leagueName: cfg.leagueName, urls: { ...cfg.urls, division: cfg.urls.division || null }, sources: cfg.sources,
       division: '', summary: {}, position: null, teamsInDivision: null,
       fixtures: [], lastGame: null, nextGame: null, standings: [], players: [],
       error: e.message,
     };
-    return { team, names: [], league: cfg.leagueShort };
   }
 }
 
-const results = [];
-for (const cfg of TEAMS) results.push(await scrapeTeam(cfg));
-const teams = results.map(r => r.team);
+const teams = [];
+for (const cfg of TEAMS) teams.push(await scrapeTeam(cfg));
 
-// Club roster: canonical player name -> the leagues they're registered in.
+// Roster: canonical player name -> the teams (and leagues) they have PLAYED in.
+// Registration is shared across a league's teams on cgleague, so we use the
+// per-team played lists (players who appear with games > 0) instead.
 const rosterMap = new Map();
-for (const r of results) {
-  for (const raw of r.names) {
-    const name = canon(raw);
-    if (!rosterMap.has(name)) rosterMap.set(name, new Set());
-    rosterMap.get(name).add(r.league);
+for (const t of teams) {
+  for (const p of (t.players || [])) {
+    const name = canon(p.name);
+    if (!rosterMap.has(name)) rosterMap.set(name, { teams: new Set(), leagues: new Set() });
+    const e = rosterMap.get(name);
+    e.teams.add(t.id);
+    e.leagues.add(t.leagueShort);
   }
 }
 const roster = [...rosterMap.entries()]
-  .map(([name, set]) => ({ name, leagues: [...set].sort() }))
+  .map(([name, e]) => ({ name, teams: [...e.teams], leagues: [...e.leagues].sort() }))
   .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 
-const data = { updated: new Date().toISOString(), season: SEASON_DEFAULT, teams, roster };
+const data = { updated: new Date().toISOString(), season: SEASON_DEFAULT, teams, roster, aliases: ALIASES };
 const json = JSON.stringify(data, null, 2);
 
 await mkdir('_site', { recursive: true });

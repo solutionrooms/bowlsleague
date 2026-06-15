@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Westlands Bowls</title>
-  <meta name="description" content="Latest results, next games and tables for all Westlands bowls teams.">
+  <meta name="description" content="Latest results, next games, tables and player rankings for all Westlands bowls teams.">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%231f7a3d'/%3E%3Ctext x='16' y='22' font-family='Arial' font-size='17' font-weight='bold' fill='white' text-anchor='middle'%3EW%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
@@ -16,20 +16,27 @@
       <h1>Westlands Bowls</h1>
       <button id="refresh" class="upd" type="button">↻ Update</button>
     </div>
-  </header>
-
-  <main>
-    <div id="scope" class="scope" hidden>
-      <span class="scope-lbl">Showing</span>
-      <div class="seg">
+    <div class="subbar">
+      <div class="tabs">
+        <button class="tab on" type="button" data-tab="games">Games</button>
+        <button class="tab" type="button" data-tab="rankings">Rankings</button>
+      </div>
+      <div id="scope" class="scope" hidden>
         <button type="button" data-scope="mine">My games</button>
         <button type="button" data-scope="all">All games</button>
       </div>
-      <span id="scope-info" class="scope-info"></span>
     </div>
-    <div id="clubstat" class="clubstat"></div>
-    <section id="nextup" class="nextup"></section>
-    <div id="board"><p class="loading">Loading…</p></div>
+  </header>
+
+  <main>
+    <div id="games-view">
+      <div id="clubstat" class="clubstat"></div>
+      <section id="nextup" class="nextup"></section>
+      <div id="board"><p class="loading">Loading…</p></div>
+    </div>
+    <div id="rankings-view" hidden>
+      <div id="rankings"></div>
+    </div>
   </main>
 
   <footer class="foot">
