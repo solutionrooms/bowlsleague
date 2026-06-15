@@ -12,21 +12,43 @@
 <body>
   <header class="top">
     <div class="bar">
-      <h1><span class="dot"></span>Westlands Bowls</h1>
+      <button id="me-btn" class="me-btn" type="button" title="Sign in as a player">👤 Sign in</button>
+      <h1>Westlands Bowls</h1>
       <button id="refresh" class="upd" type="button">↻ Update</button>
     </div>
   </header>
 
   <main>
+    <div id="scope" class="scope" hidden>
+      <span class="scope-lbl">Showing</span>
+      <div class="seg">
+        <button type="button" data-scope="mine">My games</button>
+        <button type="button" data-scope="all">All games</button>
+      </div>
+      <span id="scope-info" class="scope-info"></span>
+    </div>
+    <div id="clubstat" class="clubstat"></div>
     <section id="nextup" class="nextup"></section>
     <div id="board"><p class="loading">Loading…</p></div>
   </main>
 
   <footer class="foot">
-    Live from <a href="https://www.cgleague.co.uk/" target="_blank" rel="noopener">cgleague</a> &amp;
-    <a href="https://bowlsresults.co.uk/" target="_blank" rel="noopener">bowlsresults</a>.
+    Live from <a href="https://www.cgleague.co.uk/">cgleague</a> &amp;
+    <a href="https://bowlsresults.co.uk/">bowlsresults</a>.
     Unofficial. <span id="upd-time"></span>
   </footer>
+
+  <div id="picker" class="picker" hidden>
+    <div class="picker-panel">
+      <div class="picker-head">
+        <span>Who are you?</span>
+        <button id="picker-close" type="button" aria-label="Close">✕</button>
+      </div>
+      <input id="picker-search" type="search" placeholder="Type your name…" autocomplete="off">
+      <div id="picker-list" class="picker-list"></div>
+      <button id="picker-clear" class="picker-clear" type="button">Show everyone (sign out)</button>
+    </div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>
