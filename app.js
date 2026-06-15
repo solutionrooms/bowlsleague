@@ -136,7 +136,7 @@ async function proxyFetch(url) {
   let lastErr;
   for (const proxy of PROXIES) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 11000);
+    const timer = setTimeout(() => ctrl.abort(), 9000);
     try {
       const res = await fetch(proxy(target), { cache: 'no-store', signal: ctrl.signal });
       if (!res.ok) { lastErr = new Error('HTTP ' + res.status); continue; }
@@ -168,11 +168,13 @@ async function refreshTeam(team) {
     return composeBowls(config, { tables, fixtures, results, players });
   }
   const config = { id: team.id, label: team.label, leagueShort: team.leagueShort, leagueName: team.leagueName, urls: team.urls };
-  const teamData = parseTeamPage(await proxyFetch(team.urls.team));
-  let divData = null;
-  if (team.urls.division) {
-    try { divData = parseDivPage(await proxyFetch(team.urls.division)); } catch { /* keep prior standings */ }
-  }
+  // Fetch the team page and division table in parallel (not sequentially).
+  const [teamHtml, divHtml] = await Promise.all([
+    proxyFetch(team.urls.team),
+    team.urls.division ? proxyFetch(team.urls.division).catch(() => null) : Promise.resolve(null),
+  ]);
+  const teamData = parseTeamPage(teamHtml);
+  const divData = divHtml ? parseDivPage(divHtml) : null;
   const updated = composeTeam(config, teamData, divData);
   updated.source = 'cgleague';
   updated.error = null;
@@ -190,7 +192,7 @@ async function liveRefresh() {
   refreshBtn.disabled = true;
   refreshBtn.textContent = '↻ Updating…';
   let ok = 0;
-  await mapLimit(state.teams.slice(), 3, async (team, idx) => {
+  await mapLimit(state.teams.slice(), 6, async (team, idx) => {
     try { const fresh = await refreshTeam(team); state.teams[idx] = fresh; replaceRow(fresh); ok++; } catch { /* keep snapshot row */ }
     renderNextUp();
   });
