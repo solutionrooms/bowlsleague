@@ -52,6 +52,31 @@ export default {
       return new Response(null, { status: 204, headers: CORS });
     }
 
+    // Private usage dashboard: /stats?pin=…  (PIN is a secret; page is unlinked)
+    if (reqUrl.pathname === '/stats') {
+      if (!env.STATS_PIN || reqUrl.searchParams.get('pin') !== env.STATS_PIN) {
+        return new Response('Forbidden', { status: 401, headers: { 'Content-Type': 'text/plain' } });
+      }
+      if (!env.DB) return new Response('no database', { status: 500 });
+      const q = async sql => ((await env.DB.prepare(sql).all()).results || []);
+      const h = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      const [tot] = await q("SELECT COUNT(DISTINCT iphash) d, COUNT(*) e FROM events WHERE iphash<>''");
+      const players = await q("SELECT player, COUNT(DISTINCT iphash) devices, COUNT(*) actions, MAX(ts) last FROM events WHERE player<>'' GROUP BY player ORDER BY actions DESC LIMIT 60");
+      const days = await q("SELECT substr(ts,1,10) day, COUNT(DISTINCT iphash) devices, COUNT(*) events FROM events GROUP BY day ORDER BY day DESC LIMIT 14");
+      const recent = await q("SELECT ts, country, event, player, detail FROM events ORDER BY id DESC LIMIT 50");
+      const tbl = (cols, rows) => `<table><tr>${cols.map(c => `<th>${c[0]}</th>`).join('')}</tr>${rows.map(r => `<tr>${cols.map(c => `<td>${h(c[1](r))}</td>`).join('')}</tr>`).join('')}</table>`;
+      const tm = s => String(s || '').slice(0, 16).replace('T', ' ');
+      const html = `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Westlands Bowls · usage</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;margin:0;background:#11140f;color:#e9ede8;padding:16px;font-size:14px;line-height:1.4}h1{font-size:1.15rem;margin:0 0 8px}h2{font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:#98a298;margin:22px 0 6px}table{border-collapse:collapse;width:100%;max-width:700px}th,td{text-align:left;padding:5px 9px;border-bottom:1px solid #2a3128;white-space:nowrap}th{color:#98a298;font-size:.7rem;text-transform:uppercase}td:first-child,th:first-child{white-space:normal}.big{font-size:1.7rem;font-weight:800;color:#36a35a}.muted{color:#98a298;font-size:.8rem}</style></head>
+<body><h1>🟢 Westlands Bowls — usage</h1>
+<p><span class=big>${tot?.d || 0}</span> unique devices · <span class=big>${tot?.e || 0}</span> events <span class=muted>(since hashed-IP logging began)</span></p>
+<h2>Players</h2>${tbl([['Player', r => r.player], ['Devices', r => r.devices], ['Actions', r => r.actions], ['Last seen', r => tm(r.last)]], players)}
+<h2>By day</h2>${tbl([['Day', r => r.day], ['Devices', r => r.devices], ['Events', r => r.events]], days)}
+<h2>Recent activity</h2>${tbl([['Time', r => tm(r.ts)], ['Ctry', r => r.country], ['Event', r => r.event], ['Player', r => r.player], ['Detail', r => r.detail]], recent)}
+<p class=muted>Times are UTC (BST = +1). No IP addresses stored — only a salted hash.</p></body></html>`;
+      return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, private' } });
+    }
+
     const target = reqUrl.searchParams.get('url');
     if (!target) return new Response('missing ?url', { status: 400, headers: CORS });
 
